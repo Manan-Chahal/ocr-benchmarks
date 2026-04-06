@@ -1,0 +1,5 @@
+Nombre
+Direccion
+Telefono
+Fecha
+Firma

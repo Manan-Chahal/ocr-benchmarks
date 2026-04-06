@@ -1,0 +1,186 @@
+[
+  {
+    "model": "easyocr",
+    "status": "evaluated",
+    "documents": [
+      {
+        "name": "en_form_001.png",
+        "language": "en",
+        "cer": 0.2981,
+        "wer": 0.6682,
+        "accuracy": 0.7019,
+        "latency_s": 7.944
+      },
+      {
+        "name": "en_form_002.png",
+        "language": "en",
+        "cer": 0.5844,
+        "wer": 0.7605,
+        "accuracy": 0.4156,
+        "latency_s": 4.984
+      },
+      {
+        "name": "en_form_003.png",
+        "language": "en",
+        "cer": 0.2778,
+        "wer": 0.6402,
+        "accuracy": 0.7222,
+        "latency_s": 6.539
+      },
+      {
+        "name": "en_form_004.png",
+        "language": "en",
+        "cer": 0.2619,
+        "wer": 0.7297,
+        "accuracy": 0.7381,
+        "latency_s": 5.773
+      },
+      {
+        "name": "en_form_005.png",
+        "language": "en",
+        "cer": 0.4198,
+        "wer": 0.6018,
+        "accuracy": 0.5802,
+        "latency_s": 4.79
+      },
+      {
+        "name": "en_receipt_001.jpg",
+        "language": "en",
+        "cer": 0.2969,
+        "wer": 0.7294,
+        "accuracy": 0.7031,
+        "latency_s": 3.734
+      },
+      {
+        "name": "en_receipt_002.jpg",
+        "language": "en",
+        "cer": 0.2836,
+        "wer": 0.5294,
+        "accuracy": 0.7164,
+        "latency_s": 3.296
+      },
+      {
+        "name": "en_receipt_003.jpg",
+        "language": "en",
+        "cer": 0.1895,
+        "wer": 0.5935,
+        "accuracy": 0.8105,
+        "latency_s": 4.039
+      },
+      {
+        "name": "en_receipt_004.jpg",
+        "language": "en",
+        "cer": 0.3647,
+        "wer": 0.7429,
+        "accuracy": 0.6353,
+        "latency_s": 4.168
+      },
+      {
+        "name": "en_receipt_005.jpg",
+        "language": "en",
+        "cer": 0.3338,
+        "wer": 0.8264,
+        "accuracy": 0.6662,
+        "latency_s": 5.115
+      },
+      {
+        "name": "en_iam_001.png",
+        "language": "en",
+        "cer": 0.0164,
+        "wer": 0.087,
+        "accuracy": 0.9836,
+        "latency_s": 1.715
+      },
+      {
+        "name": "en_iam_002.png",
+        "language": "en",
+        "cer": 0.0282,
+        "wer": 0.1316,
+        "accuracy": 0.9718,
+        "latency_s": 2.137
+      },
+      {
+        "name": "en_iam_003.png",
+        "language": "en",
+        "cer": 0.0263,
+        "wer": 0.0789,
+        "accuracy": 0.9737,
+        "latency_s": 2.02
+      },
+      {
+        "name": "en_payroll_register",
+        "language": "en",
+        "cer": 0.1599,
+        "wer": 0.3952,
+        "accuracy": 0.8401,
+        "latency_s": 13.693
+      },
+      {
+        "name": "es_factura",
+        "language": "es",
+        "cer": 0.1397,
+        "wer": 0.274,
+        "accuracy": 0.8603,
+        "latency_s": 13.472
+      },
+      {
+        "name": "fr_rapport_medical",
+        "language": "fr",
+        "cer": 0.2516,
+        "wer": 0.403,
+        "accuracy": 0.7484,
+        "latency_s": 14.408
+      }
+    ],
+    "avg_cer": 0.2458,
+    "avg_wer": 0.512,
+    "avg_accuracy": 0.7542,
+    "avg_latency_s": 6.114,
+    "total_documents": 16,
+    "languages_supported": [
+      "en",
+      "es",
+      "fr"
+    ]
+  },
+  {
+    "model": "glm_ocr",
+    "status": "no_results",
+    "documents": [],
+    "avg_cer": null,
+    "avg_wer": null,
+    "avg_accuracy": null,
+    "avg_latency_s": null,
+    "languages_supported": []
+  },
+  {
+    "model": "paddleocr_vl",
+    "status": "no_results",
+    "documents": [],
+    "avg_cer": null,
+    "avg_wer": null,
+    "avg_accuracy": null,
+    "avg_latency_s": null,
+    "languages_supported": []
+  },
+  {
+    "model": "qwen25_vl",
+    "status": "no_results",
+    "documents": [],
+    "avg_cer": null,
+    "avg_wer": null,
+    "avg_accuracy": null,
+    "avg_latency_s": null,
+    "languages_supported": []
+  },
+  {
+    "model": "olmocr2",
+    "status": "no_results",
+    "documents": [],
+    "avg_cer": null,
+    "avg_wer": null,
+    "avg_accuracy": null,
+    "avg_latency_s": null,
+    "languages_supported": []
+  }
+]

@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env
+
+# Toolings
+.vscode/
+.idea/
+
+# Modal config
+.modal.toml
+
+# macOS
+__MACOSX/
+.DS_Store
+
+# Ignore generated results if you prefer not tracking them (optional)
+# results/
+
+# Ignore downloaded/generated test sets if you only want to track code:
+# test_documents/
+# ground_truth/
