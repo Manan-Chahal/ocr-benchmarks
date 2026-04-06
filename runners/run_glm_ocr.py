@@ -21,7 +21,7 @@ try:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .pip_install(
-            "torch", "torchvision", "transformers", "accelerate",
+            "torch", "torchvision", "transformers==4.40.1", "accelerate",
             "Pillow", "sentencepiece", "protobuf", "tiktoken",
         )
     )

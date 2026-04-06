@@ -20,7 +20,7 @@ try:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("libgl1-mesa-glx", "libglib2.0-0")
-        .pip_install("paddlepaddle-gpu", "paddleocr", "Pillow")
+        .pip_install("paddlepaddle-gpu==2.6.1", "paddleocr", "Pillow")
     )
 
     @app.function(image=image, gpu="T4", timeout=1200)
@@ -30,7 +30,7 @@ try:
         import io
         import numpy as np
 
-        ocr_en = PaddleOCR(use_angle_cls=True, lang="en", use_gpu=True)
+        ocr_en = PaddleOCR(use_angle_cls=True, lang="en")
 
         results = []
         for item in image_bytes_list:

@@ -20,14 +20,14 @@ try:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .pip_install(
-            "torch", "torchvision", "transformers>=4.40", "accelerate",
+            "torch", "torchvision", "transformers>=4.45.0", "accelerate",
             "Pillow", "sentencepiece",
         )
     )
 
     @app.function(image=image, gpu="A10G", timeout=1800, memory=32768)
     def run_olmocr_modal(image_bytes_list: list) -> list:
-        from transformers import AutoModelForVision2Seq, AutoProcessor
+        from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
         from PIL import Image
         import io
         import torch
@@ -36,7 +36,7 @@ try:
         print(f"Loading {model_id}...")
 
         processor = AutoProcessor.from_pretrained(model_id)
-        model = AutoModelForVision2Seq.from_pretrained(
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_id, torch_dtype=torch.float16, device_map="auto"
         )
 

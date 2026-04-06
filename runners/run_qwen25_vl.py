@@ -20,14 +20,14 @@ try:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .pip_install(
-            "torch", "torchvision", "transformers>=4.40", "accelerate",
+            "torch", "torchvision", "transformers>=4.49.0", "accelerate",
             "Pillow", "qwen-vl-utils",
         )
     )
 
     @app.function(image=image, gpu="A10G", timeout=1800, memory=32768)
     def run_qwen_modal(image_bytes_list: list) -> list:
-        from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor
+        from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
         from qwen_vl_utils import process_vision_info
         from PIL import Image
         import io
@@ -36,7 +36,7 @@ try:
         model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
         print(f"Loading {model_id}...")
 
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model_id, torch_dtype=torch.float16, device_map="auto"
         )
         processor = AutoProcessor.from_pretrained(model_id)

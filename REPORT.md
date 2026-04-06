@@ -1,6 +1,6 @@
 # OCR Model Benchmarking Report
 
-**Date:** 2026-04-06 14:45:08
+**Date:** 2026-04-06 15:07:31
 **Models:** easyocr, glm_ocr, paddleocr_vl, qwen25_vl, olmocr2
 
 ---
