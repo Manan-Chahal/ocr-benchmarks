@@ -1,0 +1,15 @@
+# Used for running GPU-heavy VLMs via Modal serverless infrastructure
+modal>=0.60.0
+
+# Optional dependencies used internally by Modal containers.
+# You typically DO NOT need to install these locally unless you are 
+# adapting the runners to run on local GPUs.
+torch
+torchvision
+transformers
+accelerate
+sentencepiece
+protobuf
+tiktoken
+qwen-vl-utils
+numpy

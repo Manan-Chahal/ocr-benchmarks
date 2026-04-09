@@ -3,19 +3,22 @@ GLM-OCR benchmark runner (Modal GPU).
 Uses the GLM-4V-9B model via transformers for OCR.
 """
 
-import json
 import os
 import sys
 import time
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESULTS_DIR = os.path.join(BASE, "results")
-os.makedirs(RESULTS_DIR, exist_ok=True)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from shared import get_test_images, save_results, get_logger
 
-# Modal-based runner
+log = get_logger("glm_ocr")
+
+# ── Modal-based runner ───────────────────────────────────────────────────────
 try:
     import modal
 
+    # Find shared.py relative to this script
+    shared_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "shared.py")
+    
     app = modal.App("ocr-benchmark-glm")
 
     image = (
@@ -24,14 +27,10 @@ try:
             "torch", "torchvision", "transformers==4.40.1", "accelerate",
             "Pillow", "sentencepiece", "protobuf", "tiktoken",
         )
+        .add_local_file(shared_path, remote_path="/root/shared.py")
     )
 
-    @app.function(
-        image=image,
-        gpu="A10G",
-        timeout=1800,
-        memory=32768,
-    )
+    @app.function(image=image, gpu="A10G", timeout=1800, memory=32768)
     def run_glm_ocr_modal(image_bytes_list: list) -> list:
         """Run GLM-OCR on a list of images on Modal GPU."""
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -44,36 +43,33 @@ try:
 
         tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            trust_remote_code=True,
+            model_id, torch_dtype=torch.float16,
+            device_map="auto", trust_remote_code=True,
         )
 
         results = []
         for item in image_bytes_list:
             name = item["name"]
             img = Image.open(io.BytesIO(item["bytes"])).convert("RGB")
-
             prompt = "Please extract all text from this image. Return only the extracted text."
             start = time.time()
-
             try:
                 inputs = tokenizer.apply_chat_template(
                     [{"role": "user", "image": img, "content": prompt}],
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    return_tensors="pt",
-                    return_dict=True,
+                    add_generation_prompt=True, tokenize=True,
+                    return_tensors="pt", return_dict=True,
                 ).to(model.device)
-
                 output = model.generate(**inputs, max_new_tokens=2048)
-                text = tokenizer.decode(output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+                text = tokenizer.decode(
+                    output[0][inputs["input_ids"].shape[1]:],
+                    skip_special_tokens=True,
+                )
                 elapsed = time.time() - start
-
                 results.append({
                     "name": name,
+                    "category": item.get("category", "unknown"),
                     "ocr_text": text.strip(),
+                    "bounding_boxes": None,
                     "latency_s": round(elapsed, 3),
                     "status": "success",
                 })
@@ -81,11 +77,12 @@ try:
                 elapsed = time.time() - start
                 results.append({
                     "name": name,
+                    "category": item.get("category", "unknown"),
                     "ocr_text": "",
+                    "bounding_boxes": None,
                     "latency_s": round(elapsed, 3),
                     "status": f"error: {str(e)}",
                 })
-
         return results
 
     HAS_MODAL = True
@@ -93,92 +90,27 @@ except ImportError:
     HAS_MODAL = False
 
 
-def get_test_images():
-    """Collect test images as bytes for Modal transfer."""
-    from PIL import Image
-    import io
-
-    docs = []
-
-    for subdir in ["scanned", "handwritten"]:
-        folder = os.path.join(BASE, "test_documents", subdir)
-        if os.path.exists(folder):
-            for f in sorted(os.listdir(folder)):
-                if f.lower().endswith((".png", ".jpg", ".jpeg")):
-                    with open(os.path.join(folder, f), "rb") as fh:
-                        docs.append({"name": f, "bytes": fh.read(), "category": subdir})
-
-    # Convert PDFs to images
-    printed_dir = os.path.join(BASE, "test_documents", "printed")
-    if os.path.exists(printed_dir):
-        try:
-            import fitz
-            for f in sorted(os.listdir(printed_dir)):
-                if f.lower().endswith(".pdf"):
-                    doc = fitz.open(os.path.join(printed_dir, f))
-                    for pg in range(len(doc)):
-                        pix = doc[pg].get_pixmap(dpi=200)
-                        img_bytes = pix.tobytes("png")
-                        docs.append({
-                            "name": os.path.splitext(f)[0],
-                            "bytes": img_bytes,
-                            "category": "printed",
-                        })
-                    doc.close()
-        except ImportError:
-            print("WARNING: PyMuPDF not installed, skipping PDFs")
-
-    return docs
-
-
 def run_local_fallback():
-    """Run with a local placeholder if Modal is not available."""
-    print("WARNING: Running in local fallback mode (no GPU)")
-    print("GLM-OCR requires Modal GPU. Generating placeholder results.")
-
-    docs = get_test_images()
-    results = {
-        "model": "glm_ocr",
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "note": "LOCAL FALLBACK - no actual OCR performed. Run on Modal for real results.",
-        "documents": [],
-    }
-
-    for doc in docs:
-        results["documents"].append({
-            "name": doc["name"],
-            "category": doc["category"],
-            "ocr_text": "[GLM-OCR requires Modal GPU - placeholder result]",
-            "latency_s": 0.0,
-            "status": "placeholder",
-        })
-
-    out = os.path.join(RESULTS_DIR, "glm_ocr_results.json")
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    print(f"Placeholder results saved to {out}")
+    """Generate placeholder results when Modal is unavailable."""
+    log.warning("GLM-OCR requires Modal GPU — generating placeholder results")
+    docs = get_test_images(as_bytes=True)
+    placeholders = [
+        {"name": d["name"], "category": d.get("category", "unknown"),
+         "ocr_text": "[placeholder]", "latency_s": 0.0, "status": "placeholder"}
+        for d in docs
+    ]
+    save_results("glm_ocr", placeholders, extra_meta={"note": "LOCAL FALLBACK"})
 
 
 def main():
     if HAS_MODAL:
-        print("Running GLM-OCR on Modal GPU...")
-        docs = get_test_images()
-        print(f"Prepared {len(docs)} documents")
-
+        log.info("Running GLM-OCR on Modal GPU...")
+        docs = get_test_images(as_bytes=True)
+        log.info("Prepared %d documents", len(docs))
         with modal.enable_output():
             with app.run():
                 modal_results = run_glm_ocr_modal.remote(docs)
-
-        results = {
-            "model": "glm_ocr",
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "documents": modal_results,
-        }
-
-        out = os.path.join(RESULTS_DIR, "glm_ocr_results.json")
-        with open(out, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"Results saved to {out}")
+        save_results("glm_ocr", modal_results)
     else:
         run_local_fallback()
 

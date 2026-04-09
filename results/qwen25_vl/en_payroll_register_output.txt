@@ -1,0 +1,18 @@
+ACME Corporation
+Payroll Register — March 2026
+Department: Engineering | Pay Period: 03/01/2026 – 03/31/2026
+
+| Employee ID | Name | Hours | Rate ($) | Gross Pay ($) | Tax ($) | Net Pay ($) |
+|-------------|------|-------|----------|---------------|---------|--------------|
+| ENG-1001    | Alice Johnson | 160 | 45.00 | 7,200.00 | 1,440.00 | 5,760.00 |
+| ENG-1002    | Bob Martinez | 168 | 52.50 | 8,820.00 | 1,764.00 | 7,056.00 |
+| ENG-1003    | Carol Zhang | 152 | 48.75 | 7,410.00 | 1,482.00 | 5,928.00 |
+| ENG-1004    | David Okafor | 160 | 55.00 | 8,800.00 | 1,760.00 | 7,040.00 |
+| ENG-1005    | Elena Petrov | 144 | 47.25 | 6,804.00 | 1,360.80 | 5,443.20 |
+| ENG-1006    | Frank Nguyen | 160 | 50.00 | 8,000.00 | 1,600.00 | 6,400.00 |
+| ENG-1007    | Grace Kim | 176 | 51.00 | 8,976.00 | 1,795.20 | 7,180.80 |
+| ENG-1008    | Henry Davis | 160 | 46.50 | 7,440.00 | 1,488.00 | 5,952.00 |
+| TOTALS      |       | 1,280 |        | 63,450.00 | 12,690.00 | 50,760.00 |
+
+Approved by: Sarah Thompson, VP Finance
+Date: April 1, 2026

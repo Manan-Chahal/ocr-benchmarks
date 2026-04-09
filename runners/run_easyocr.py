@@ -1,58 +1,18 @@
 """
 EasyOCR benchmark runner.
 Runs EasyOCR on all test documents and saves results.
-Can run locally (CPU) or on Modal (GPU).
+Can run locally (CPU) or on GPU if available.
 """
 
-import json
-import os
 import sys
+import os
 import time
-import glob
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESULTS_DIR = os.path.join(BASE, "results")
-os.makedirs(RESULTS_DIR, exist_ok=True)
+# Add parent dir to path so we can import shared
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from shared import get_test_images, save_results, get_logger
 
-
-def get_test_images():
-    """Collect all test document paths."""
-    docs = []
-    for subdir in ["scanned", "handwritten"]:
-        folder = os.path.join(BASE, "test_documents", subdir)
-        if os.path.exists(folder):
-            for f in sorted(os.listdir(folder)):
-                if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp")):
-                    docs.append({
-                        "path": os.path.join(folder, f),
-                        "name": f,
-                        "category": subdir,
-                    })
-
-    # For printed PDFs, convert to images first
-    printed_dir = os.path.join(BASE, "test_documents", "printed")
-    if os.path.exists(printed_dir):
-        try:
-            import fitz  # PyMuPDF
-            for f in sorted(os.listdir(printed_dir)):
-                if f.lower().endswith(".pdf"):
-                    pdf_path = os.path.join(printed_dir, f)
-                    doc = fitz.open(pdf_path)
-                    for page_num in range(len(doc)):
-                        page = doc[page_num]
-                        pix = page.get_pixmap(dpi=200)
-                        img_path = os.path.join(printed_dir, f"{os.path.splitext(f)[0]}_p{page_num}.png")
-                        pix.save(img_path)
-                        docs.append({
-                            "path": img_path,
-                            "name": os.path.splitext(f)[0],
-                            "category": "printed",
-                        })
-                    doc.close()
-        except ImportError:
-            print("WARNING: PyMuPDF not installed, skipping PDF documents")
-
-    return docs
+log = get_logger("easyocr")
 
 
 def run_easyocr_benchmark():
@@ -60,58 +20,58 @@ def run_easyocr_benchmark():
     try:
         import easyocr
     except ImportError:
-        print("Installing easyocr...")
+        log.info("Installing easyocr...")
         import subprocess
         subprocess.check_call([sys.executable, "-m", "pip", "install", "easyocr", "-q"])
         import easyocr
 
-    # Initialize reader for all languages we test
-    print("Initializing EasyOCR reader...")
+    log.info("Initialising EasyOCR reader (en, es, fr)...")
     reader = easyocr.Reader(["en", "es", "fr"], gpu=True)
 
-    docs = get_test_images()
-    print(f"Found {len(docs)} test documents")
+    docs = get_test_images(as_bytes=False)
+    log.info("Found %d test documents", len(docs))
 
-    results = {
-        "model": "easyocr",
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "documents": [],
-    }
-
+    results = []
     for doc in docs:
-        print(f"  Processing {doc['name']}...", end=" ", flush=True)
+        log.info("  Processing %s...", doc["name"])
         start = time.time()
-
         try:
-            raw_results = reader.readtext(doc["path"], detail=0, paragraph=True)
-            ocr_text = "\n".join(raw_results)
+            # detail=1 gives List of [bounding_box, text, confidence]
+            raw_results = reader.readtext(doc["path"], detail=1)
+            
+            texts = []
+            bboxes = []
+            for box, text, conf in raw_results:
+                 texts.append(text)
+                 # box is usually a list of 4 points: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                 # convert numpy Ints to native Python ints so JSON serialises properly
+                 bboxes.append([[int(p[0]), int(p[1])] for p in box])
+                 
+            ocr_text = "\n".join(texts)
             elapsed = time.time() - start
-            print(f"OK ({elapsed:.2f}s, {len(ocr_text)} chars)")
-
-            results["documents"].append({
+            log.info("    OK (%.2fs, %d chars)", elapsed, len(ocr_text))
+            
+            results.append({
                 "name": doc["name"],
                 "category": doc["category"],
                 "ocr_text": ocr_text,
+                "bounding_boxes": bboxes,
                 "latency_s": round(elapsed, 3),
                 "status": "success",
             })
         except Exception as e:
             elapsed = time.time() - start
-            print(f"FAIL ({e})")
-            results["documents"].append({
+            log.error("    FAIL: %s", e)
+            results.append({
                 "name": doc["name"],
                 "category": doc["category"],
                 "ocr_text": "",
+                "bounding_boxes": None,
                 "latency_s": round(elapsed, 3),
                 "status": f"error: {str(e)}",
             })
 
-    # Save results
-    out_path = os.path.join(RESULTS_DIR, "easyocr_results.json")
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    print(f"\nResults saved to {out_path}")
-
+    save_results("easyocr", results)
     return results
 
 

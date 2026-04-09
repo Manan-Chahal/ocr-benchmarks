@@ -1,0 +1,36 @@
+FACTURA
+
+Número de Factura: FAC-2026-04821
+
+Fecha de Emisión: 15 de marzo de 2026
+
+Fecha de Vencimiento: 14 de abril de 2026
+
+Emisor: Soluciones Tecnológicas del Norte S.A. de C.V.
+
+RFC: STN-050312-AB7
+
+Dirección: Av. Revolución 1425, Col. Centro, Monterrey, N.L., C.P. 64000
+
+Cliente: Importadora García Hermanos S.A.
+
+RFC: IGH-980723-QR5
+
+Dirección: Calle 5 de Mayo 302, Col. Juárez, Ciudad de México, C.P. 06600
+
+| Código | Descripción | Cantidad | Precio Unit. (MXN) | Importe (MXN) |
+|--------|-------------|----------|-------------------|---------------|
+| SRV-001 | Consultoría en infraestructura de TI | 40 hrs | $1,250.00 | $50,000.00 |
+| SRV-002 | Desarrollo de aplicación movil | 120 hrs | $850.00 | $114,000.00 |
+| LIC-010 | Licencia anual de software ERP | 5 | $8,500.00 | $42,500.00 |
+| HW-055 | Servidor Dell PowerEdge R750 | 2 | $45,000.00 | $90,000.00 |
+
+Subtotal: $296,500.00
+
+IVA (16%): $47,440.00
+
+Total: $343,940.00
+
+Método de Pago: Transferencia bancaria
+
+Banco: BBVA México | Cuenta: 0123456789 | CLABE: 012345678901234567

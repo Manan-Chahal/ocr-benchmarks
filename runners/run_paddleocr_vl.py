@@ -3,27 +3,31 @@ PaddleOCR-VL benchmark runner (Modal GPU).
 Uses PaddlePaddle's PP-OCRv4 for OCR.
 """
 
-import json
 import os
 import sys
 import time
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESULTS_DIR = os.path.join(BASE, "results")
-os.makedirs(RESULTS_DIR, exist_ok=True)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from shared import get_test_images, save_results, get_logger
+
+log = get_logger("paddleocr_vl")
 
 try:
     import modal
 
-    app = modal.App("ocr-benchmark-paddleocr")
+    # Find shared.py relative to this script
+    shared_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "shared.py")
+    
+    app = modal.App("ocr-benchmark-paddle")
 
     image = (
         modal.Image.debian_slim(python_version="3.11")
-        .apt_install("libgl1-mesa-glx", "libglib2.0-0")
-        .pip_install("paddlepaddle-gpu==2.6.1", "paddleocr", "Pillow")
+        .apt_install("libgl1", "libglib2.0-0", "libgomp1")
+        .pip_install("paddlepaddle", "paddleocr==2.8.1")
+        .add_local_file(shared_path, remote_path="/root/shared.py")
     )
 
-    @app.function(image=image, gpu="T4", timeout=1200)
+    @app.function(image=image, timeout=1200)
     def run_paddleocr_modal(image_bytes_list: list) -> list:
         from paddleocr import PaddleOCR
         from PIL import Image
@@ -39,14 +43,21 @@ try:
             try:
                 result = ocr_en.ocr(img, cls=True)
                 texts = []
+                bboxes = []
                 if result and result[0]:
                     for line in result[0]:
+                        # line is typically [ [[x1,y1],...], ("text", confidence) ]
+                        if line[0]:
+                            # Convert boxes to int to be JSON serialisable
+                            bboxes.append([[int(p[0]), int(p[1])] for p in line[0]])
                         if line[1]:
                             texts.append(line[1][0])
                 elapsed = time.time() - start
                 results.append({
                     "name": item["name"],
+                    "category": item.get("category", "unknown"),
                     "ocr_text": "\n".join(texts),
+                    "bounding_boxes": bboxes,
                     "latency_s": round(elapsed, 3),
                     "status": "success",
                 })
@@ -54,7 +65,9 @@ try:
                 elapsed = time.time() - start
                 results.append({
                     "name": item["name"],
+                    "category": item.get("category", "unknown"),
                     "ocr_text": "",
+                    "bounding_boxes": None,
                     "latency_s": round(elapsed, 3),
                     "status": f"error: {str(e)}",
                 })
@@ -65,58 +78,25 @@ except ImportError:
     HAS_MODAL = False
 
 
-def get_test_images():
-    docs = []
-    for subdir in ["scanned", "handwritten"]:
-        folder = os.path.join(BASE, "test_documents", subdir)
-        if os.path.exists(folder):
-            for f in sorted(os.listdir(folder)):
-                if f.lower().endswith((".png", ".jpg", ".jpeg")):
-                    with open(os.path.join(folder, f), "rb") as fh:
-                        docs.append({"name": f, "bytes": fh.read(), "category": subdir})
-
-    printed_dir = os.path.join(BASE, "test_documents", "printed")
-    if os.path.exists(printed_dir):
-        try:
-            import fitz
-            for f in sorted(os.listdir(printed_dir)):
-                if f.lower().endswith(".pdf"):
-                    doc = fitz.open(os.path.join(printed_dir, f))
-                    for pg in range(len(doc)):
-                        pix = doc[pg].get_pixmap(dpi=200)
-                        docs.append({"name": os.path.splitext(f)[0], "bytes": pix.tobytes("png"), "category": "printed"})
-                    doc.close()
-        except ImportError:
-            pass
-    return docs
-
-
 def run_local_fallback():
-    print("WARNING: PaddleOCR requires Modal GPU. Generating placeholders.")
-    docs = get_test_images()
-    results = {"model": "paddleocr_vl", "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-               "note": "LOCAL FALLBACK", "documents": []}
-    for d in docs:
-        results["documents"].append({"name": d["name"], "category": d["category"],
-                                     "ocr_text": "[placeholder]", "latency_s": 0.0, "status": "placeholder"})
-    out = os.path.join(RESULTS_DIR, "paddleocr_vl_results.json")
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    print(f"Saved to {out}")
+    log.warning("PaddleOCR requires Modal GPU — generating placeholders")
+    docs = get_test_images(as_bytes=True)
+    placeholders = [
+        {"name": d["name"], "category": d.get("category", "unknown"),
+         "ocr_text": "[placeholder]", "latency_s": 0.0, "status": "placeholder"}
+        for d in docs
+    ]
+    save_results("paddleocr_vl", placeholders, extra_meta={"note": "LOCAL FALLBACK"})
 
 
 def main():
     if HAS_MODAL:
-        print("Running PaddleOCR on Modal GPU...")
-        docs = get_test_images()
+        log.info("Running PaddleOCR on Modal GPU...")
+        docs = get_test_images(as_bytes=True)
         with modal.enable_output():
             with app.run():
                 modal_results = run_paddleocr_modal.remote(docs)
-        results = {"model": "paddleocr_vl", "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "documents": modal_results}
-        out = os.path.join(RESULTS_DIR, "paddleocr_vl_results.json")
-        with open(out, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"Results saved to {out}")
+        save_results("paddleocr_vl", modal_results)
     else:
         run_local_fallback()
 

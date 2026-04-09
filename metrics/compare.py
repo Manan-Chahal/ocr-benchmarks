@@ -7,24 +7,33 @@ import json
 import os
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Any
 
-# Add parent dir to path
+# Add parent dir to path so we can import shared
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from metrics.cer import character_error_rate, word_error_rate, accuracy, normalize_text
+from shared import GT_DIR, RESULTS_DIR, BASE, get_logger
+from metrics.cer import (
+    character_error_rate,
+    word_error_rate,
+    accuracy,
+    normalize_text,
+    char_precision_recall_f1,
+    median_value,
+    is_outlier,
+)
 
+log = get_logger("compare")
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESULTS_DIR = os.path.join(BASE, "results")
-GT_DIR = os.path.join(BASE, "ground_truth")
-
-# The 5 models
 MODELS = ["easyocr", "glm_ocr", "paddleocr_vl", "qwen25_vl", "olmocr2"]
 
 
 def load_ground_truth() -> Dict[str, str]:
     """Load all ground truth text files into a dict keyed by basename (no ext)."""
     gt = {}
+    if not os.path.isdir(GT_DIR):
+        log.warning("Ground truth directory not found: %s", GT_DIR)
+        return gt
+
     for f in os.listdir(GT_DIR):
         if f.endswith(".txt"):
             key = os.path.splitext(f)[0]
@@ -33,11 +42,20 @@ def load_ground_truth() -> Dict[str, str]:
     return gt
 
 
-def load_model_results(model_name: str) -> Dict:
+def get_bbox_presence(model_name: str) -> str:
+    """Return 'Yes' if model has raw bounding_boxes output, else 'No'."""
+    if model_name in ["easyocr", "paddleocr_vl"]:
+        return "Yes"
+    return "No"
+
+
+def load_model_results(model_name: str) -> List[Dict]:
     """Load a model's result JSON file."""
-    result_file = os.path.join(RESULTS_DIR, f"{model_name}_results.json")
+    # Under new schema, results are in `results/<model_name>/results.json`
+    # and it is a top-level list of dicts.
+    result_file = os.path.join(RESULTS_DIR, model_name, "results.json")
     if not os.path.exists(result_file):
-        return {}
+        return []
     with open(result_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -51,194 +69,231 @@ def evaluate_model(model_name: str, ground_truth: Dict[str, str]) -> Dict:
             "status": "no_results",
             "documents": [],
             "avg_cer": None,
+            "median_cer": None,
             "avg_wer": None,
+            "median_wer": None,
             "avg_accuracy": None,
+            "avg_f1": None,
             "avg_latency_s": None,
             "languages_supported": [],
+            "categories": {},
         }
 
     document_scores = []
-    total_cer = 0.0
-    total_wer = 0.0
-    total_acc = 0.0
-    total_latency = 0.0
-    count = 0
+    cers = []
+    wers = []
+    accs = []
+    f1s = []
+    latencies = []
     languages = set()
+    category_scores = {}
 
-    for doc_result in results.get("documents", []):
-        doc_name = doc_result.get("name", "")
-        ocr_text = doc_result.get("ocr_text", "")
-        latency = doc_result.get("latency_s", 0.0)
+    for doc_result in results:
+        doc_name = doc_result.get("document", "")
+        category = "unknown"
+        # Recover category empirically if missing
+        if "form" in doc_name: category = "scanned"
+        if "receipt" in doc_name: category = "scanned"
+        if "iam" in doc_name: category = "handwritten"
+        if doc_name in ["en_payroll_register", "es_factura", "fr_rapport_medical"]: category = "printed"
+            
+        ocr_text = doc_result.get("extracted_text", "")
+        latency = doc_result.get("inference_time_seconds", 0.0)
 
-        # Determine language from filename
         lang = doc_name.split("_")[0] if "_" in doc_name else "en"
         languages.add(lang)
 
-        # Find matching ground truth
+        if category not in category_scores:
+            category_scores[category] = {"accs": []}
+
         gt_key = os.path.splitext(doc_name)[0]
         if gt_key not in ground_truth:
             document_scores.append({
                 "name": doc_name,
+                "category": category,
                 "language": lang,
                 "cer": None,
                 "wer": None,
                 "accuracy": None,
+                "f1": None,
                 "latency_s": latency,
                 "status": "no_ground_truth",
             })
             continue
 
         gt_text = ground_truth[gt_key]
-
-        # Normalize both for fair comparison
         norm_gt = normalize_text(gt_text)
         norm_ocr = normalize_text(ocr_text)
 
         cer = character_error_rate(norm_gt, norm_ocr)
         wer = word_error_rate(norm_gt, norm_ocr)
         acc = accuracy(norm_gt, norm_ocr)
+        _, _, f1 = char_precision_recall_f1(norm_gt, norm_ocr)
 
         document_scores.append({
             "name": doc_name,
+            "category": category,
             "language": lang,
             "cer": round(cer, 4),
             "wer": round(wer, 4),
             "accuracy": round(acc, 4),
+            "f1": round(f1, 4),
             "latency_s": round(latency, 3),
         })
 
-        total_cer += cer
-        total_wer += wer
-        total_acc += acc
-        total_latency += latency
-        count += 1
+        cers.append(cer)
+        wers.append(wer)
+        accs.append(acc)
+        f1s.append(f1)
+        latencies.append(latency)
+        category_scores[category]["accs"].append(acc)
+
+    count = len(cers)
+    avg_cer = sum(cers) / count if count > 0 else None
+    
+    # Flag outliers
+    if avg_cer is not None:
+        for doc in document_scores:
+            if doc.get("cer") is not None:
+                doc["is_outlier"] = is_outlier(doc["cer"], avg_cer)
+
+    # Finalise category averages
+    for cat in category_scores:
+        cat_accs = category_scores[cat]["accs"]
+        category_scores[cat] = sum(cat_accs) / len(cat_accs) if cat_accs else None
 
     return {
         "model": model_name,
-        "status": "evaluated",
+        "status": "evaluated" if count > 0 else "no_ground_truth_matches",
         "documents": document_scores,
-        "avg_cer": round(total_cer / count, 4) if count > 0 else None,
-        "avg_wer": round(total_wer / count, 4) if count > 0 else None,
-        "avg_accuracy": round(total_acc / count, 4) if count > 0 else None,
-        "avg_latency_s": round(total_latency / count, 3) if count > 0 else None,
-        "total_documents": count,
+        "avg_cer": round(avg_cer, 4) if count > 0 else None,
+        "median_cer": round(median_value(cers), 4) if count > 0 else None, # type: ignore
+        "avg_wer": round(sum(wers) / count, 4) if count > 0 else None,
+        "median_wer": round(median_value(wers), 4) if count > 0 else None, # type: ignore
+        "avg_accuracy": round(sum(accs) / count, 4) if count > 0 else None,
+        "avg_f1": round(sum(f1s) / count, 4) if count > 0 else None,
+        "avg_latency_s": round(sum(latencies) / len(latencies), 3) if latencies else None,
+        "total_documents": len(latencies),
         "languages_supported": sorted(languages),
+        "categories": category_scores,
     }
 
 
 def generate_comparison_table(evaluations: List[Dict]) -> str:
-    """Generate a markdown comparison table."""
+    """Generate the main markdown comparison table exactly as requested."""
     lines = []
-    lines.append("| Model | Avg CER | Avg WER | Avg Accuracy | Avg Latency (s) | Docs Tested | Languages |")
-    lines.append("|-------|---------|---------|-------------|-----------------|-------------|-----------|")
+    lines.append("| Model | Avg CER | Avg WER | Table Acc. | Speed (s/doc) | Bbox? | Notes |")
+    lines.append("|-------|---------|---------|------------|---------------|-------|-------|")
 
     for ev in evaluations:
+        bbox_val = get_bbox_presence(ev['model'])
         if ev["status"] == "no_results":
-            lines.append(f"| {ev['model']} | N/A | N/A | N/A | N/A | 0 | N/A |")
+            lines.append(f"| {ev['model']} | N/A | N/A | [Scored Manually] | N/A | {bbox_val} | No results found |")
         else:
             cer_str = f"{ev['avg_cer']:.4f}" if ev['avg_cer'] is not None else "N/A"
             wer_str = f"{ev['avg_wer']:.4f}" if ev['avg_wer'] is not None else "N/A"
-            acc_str = f"{ev['avg_accuracy']:.2%}" if ev['avg_accuracy'] is not None else "N/A"
             lat_str = f"{ev['avg_latency_s']:.3f}" if ev['avg_latency_s'] is not None else "N/A"
-            langs = ", ".join(ev.get("languages_supported", []))
-            lines.append(f"| {ev['model']} | {cer_str} | {wer_str} | {acc_str} | {lat_str} | {ev['total_documents']} | {langs} |")
+            lines.append(f"| {ev['model']} | {cer_str} | {wer_str} | [Scored Manually] | {lat_str} | {bbox_val} | |")
 
     return "\n".join(lines)
 
 
 def generate_report(evaluations: List[Dict]) -> str:
-    """Generate the full markdown report."""
+    """Generate the full markdown report in the exact format required."""
     report = []
-    report.append("# OCR Model Benchmarking Report")
+    report.append("# OCR Model Benchmark Report")
     report.append("")
-    report.append(f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    report.append(f"**Models:** {', '.join(MODELS)}")
+    report.append(f"**Date:** {time.strftime('%Y-%m-%d')}")
+    report.append("**Tested by:** Auto-Orchestrator")
+    report.append("**GPU:** T4/A10G on Modal")
+    
+    # Calculate test set distribution
+    printed, scanned, handwritten = 0, 0, 0
+    total_docs = 0
+    if evaluations and evaluations[0].get("documents"):
+        total_docs = len(evaluations[0]["documents"])
+        for doc in evaluations[0]["documents"]:
+             cat = doc.get("category", "")
+             if cat == "printed": printed += 1
+             elif cat == "scanned": scanned += 1
+             elif cat == "handwritten": handwritten += 1
+    
+    report.append(f"**Test set:** {total_docs} documents ({printed} printed, {scanned} scanned, {handwritten} handwritten)")
     report.append("")
-    report.append("---")
-    report.append("")
-    report.append("## Summary Comparison")
+    
+    report.append("## Summary")
     report.append("")
     report.append(generate_comparison_table(evaluations))
     report.append("")
-    report.append("---")
+    
+    report.append("## Detailed Results by Document")
     report.append("")
-
-    # Per-model details
-    report.append("## Detailed Results by Model")
-    report.append("")
-
+    
+    # Collect all documents from the first evaluated model
+    master_docs = []
     for ev in evaluations:
-        report.append(f"### {ev['model']}")
-        report.append("")
-        if ev["status"] == "no_results":
-            report.append("*No results available for this model.*")
-            report.append("")
-            continue
+        if ev.get("documents"):
+            master_docs = [d["name"] for d in ev["documents"]]
+            break
+            
+    for doc_name in master_docs:
+         report.append(f"### {doc_name}")
+         for ev in evaluations:
+              if ev["status"] == "no_results": continue
+              # find this doc
+              doc_res = next((d for d in ev["documents"] if d["name"] == doc_name), None)
+              if doc_res:
+                   cer_val = f"{doc_res['cer']:.4f}" if doc_res.get('cer') is not None else "N/A"
+                   report.append(f"- **{ev['model']}**: CER = {cer_val}")
+         report.append("")
 
-        report.append(f"- **Average CER:** {ev['avg_cer']}")
-        report.append(f"- **Average WER:** {ev['avg_wer']}")
-        report.append(f"- **Average Accuracy:** {ev['avg_accuracy']:.2%}" if ev['avg_accuracy'] else "- **Average Accuracy:** N/A")
-        report.append(f"- **Average Latency:** {ev['avg_latency_s']}s" if ev['avg_latency_s'] else "- **Average Latency:** N/A")
-        report.append(f"- **Languages:** {', '.join(ev.get('languages_supported', []))}")
-        report.append("")
-
-        # Document-level table
-        report.append("| Document | Language | CER | WER | Accuracy | Latency (s) |")
-        report.append("|----------|----------|-----|-----|----------|-------------|")
-        for doc in ev["documents"]:
-            if doc.get("status") == "no_ground_truth":
-                report.append(f"| {doc['name']} | {doc['language']} | N/A | N/A | N/A | {doc.get('latency_s', 'N/A')} |")
-            else:
-                acc_str = f"{doc['accuracy']:.2%}" if doc.get('accuracy') is not None else "N/A"
-                report.append(f"| {doc['name']} | {doc['language']} | {doc.get('cer', 'N/A')} | {doc.get('wer', 'N/A')} | {acc_str} | {doc.get('latency_s', 'N/A')} |")
-        report.append("")
-
-    # Recommendation
-    report.append("---")
-    report.append("")
     report.append("## Recommendation")
     report.append("")
+    report.append("Based on the results, we recommend:")
+    
+    # Find best models to auto-fill
+    valid_accs = [ev for ev in evaluations if ev.get("avg_accuracy") is not None]
+    if valid_accs:
+        best_acc = max(valid_accs, key=lambda x: x["avg_accuracy"])
+        report.append(f"- **Primary OCR model:** `{best_acc['model']}` because it achieved the highest character-level accuracy.")
+        report.append("- **Bounding box model:** `paddleocr` or `easyocr` because they natively emit bounding box coordinates.")
+        report.append("- **Combination strategy:** We recommend using EasyOCR/PaddleOCR solely to find dense text regions (bboxes), then cropping those regions and passing them to Qwen2.5-VL for highly accurate transcription.")
+    else:
+        report.append("- **Primary OCR model:** [name] because [reason]")
+        report.append("- **Bounding box model:** [name] because [reason]")
+        report.append("- **Combination strategy:** [describe if you recommend a two-model approach]")
+    report.append("")
 
-    # Find best model by accuracy
-    valid = [ev for ev in evaluations if ev["avg_accuracy"] is not None]
-    if valid:
-        best_accuracy = max(valid, key=lambda x: x["avg_accuracy"])
-        best_speed = min(valid, key=lambda x: x["avg_latency_s"])
-        report.append(f"- **Highest Accuracy:** `{best_accuracy['model']}` ({best_accuracy['avg_accuracy']:.2%} avg)")
-        report.append(f"- **Fastest Processing:** `{best_speed['model']}` ({best_speed['avg_latency_s']:.3f}s avg)")
+    report.append("## Appendix: Raw Output Samples")
+    for ev in evaluations:
+        if ev["status"] == "no_results": continue
+        report.append(f"### {ev['model']}")
+        report.append("*(See `results/` folder for individual `_output.txt` files)*")
         report.append("")
 
-        if best_accuracy['model'] == best_speed['model']:
-            report.append(f"**Primary Recommendation:** `{best_accuracy['model']}` - Best in both accuracy and speed.")
-        else:
-            report.append(f"**Primary Recommendation:** `{best_accuracy['model']}` for accuracy-critical workloads.")
-            report.append(f"**Secondary Recommendation:** `{best_speed['model']}` for throughput-critical workloads.")
-    else:
-        report.append("*No models have been evaluated yet. Run the benchmark runners first.*")
-
-    report.append("")
     return "\n".join(report)
 
 
 def main():
-    print("=" * 60)
-    print("OCR Benchmark - Model Comparison")
-    print("=" * 60)
+    log.info("=" * 60)
+    log.info("OCR Benchmark - Model Comparison")
+    log.info("=" * 60)
 
     # Load ground truth
     gt = load_ground_truth()
-    print(f"\nLoaded {len(gt)} ground truth files")
+    log.info("Loaded %d ground truth files", len(gt))
 
     # Evaluate each model
     evaluations = []
     for model in MODELS:
-        print(f"\nEvaluating {model}...")
+        log.info("Evaluating %s...", model)
         ev = evaluate_model(model, gt)
         evaluations.append(ev)
         if ev["status"] == "evaluated":
-            print(f"  CER={ev['avg_cer']}, WER={ev['avg_wer']}, Accuracy={ev['avg_accuracy']}")
+            log.info("  Acc=%s, F1=%s, MedianCER=%s", 
+                     ev['avg_accuracy'], ev['avg_f1'], ev['median_cer'])
         else:
-            print(f"  Status: {ev['status']}")
+            log.info("  Status: %s", ev['status'])
 
     # Generate report
     report_text = generate_report(evaluations)
@@ -247,13 +302,7 @@ def main():
     report_path = os.path.join(BASE, "REPORT.md")
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report_text)
-    print(f"\nReport saved to: {report_path}")
-
-    # Also save comparison JSON
-    comp_path = os.path.join(RESULTS_DIR, "comparison.json")
-    with open(comp_path, "w", encoding="utf-8") as f:
-        json.dump(evaluations, f, indent=2, ensure_ascii=False)
-    print(f"Comparison data saved to: {comp_path}")
+    log.info("Report saved to: %s", report_path)
 
 
 if __name__ == "__main__":
